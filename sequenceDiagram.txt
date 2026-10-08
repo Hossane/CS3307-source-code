@@ -1,51 +1,92 @@
 @startuml
 skinparam sequenceMessageAlign center
 skinparam responseMessageBelowArrow true
+title UC6 — Approve Access Request (main + audit-failure)
 
-actor "approver : User" as U
-participant "ctrl : ApprovalController" as C
-participant "req : AccessRequest" as R
-participant "pol : ApprovalPolicy" as P
-participant "perm : Permission" as M
-participant "store : IAuditStore" as S
-participant "notif : INotifier" as N
+actor Approver
+participant ":AuthService" as AS
+participant ":RequestService" as RS
+participant ":ApprovalPolicy" as AP
+participant ":PermissionService" as PS
+participant ":AuditService" as AudS
+participant ":Clock" as Clock
+participant ":Notifier" as Notif
+participant ":accessRequest" as Req
+participant ":permission" as Perm
+participant ":auditLog" as Log
 
-U -> C : selectRequest(reqId)
-activate C
+Approver -> AS : log in
+activate AS
+AS --> Approver : session created
+deactivate AS
 
-C -> R : approve(approver)
-activate R
+Approver -> RS : open pending requests
+activate RS
+RS --> Approver : list of requests
+deactivate RS
 
-R -> P : canApprove(approver, self)
-activate P
-P --> R : true
-deactivate P
+Approver -> RS : approve request
+activate RS
 
-R -> P : requiredApprovals(category)
-activate P
-P --> R : 1
-deactivate P
+RS -> Req : check not self-approval
+activate Req
+Req --> RS : not self
+deactivate Req
 
-R -> R : transitionTo(Approved)
-R -> M : <<create>> Permission(id, doc, requester, expiresAt)
-activate M
-M --> R : perm
-deactivate M
+RS -> AP : evaluate request against policy
+activate AP
+AP --> RS : allowed
+deactivate AP
 
-R -> S : append(AuditEntry(...))
-activate S
-S --> R
-deactivate S
+RS -> PS : create time-limited permission
+activate PS
+PS -> Clock : current time
+activate Clock
+Clock --> PS : granted time
+deactivate Clock
+PS -> Perm : create permission
+activate Perm
+Perm --> PS : created
+deactivate Perm
+PS --> RS : permission created
+deactivate PS
 
-R -> N : notify(requester, "access granted")
-activate N
-N --> R
-deactivate N
+RS -> Req : mark approved
+activate Req
+Req --> RS : approved
+deactivate Req
 
-R --> C : result
-deactivate R
+RS ->> Notif : notify requester
+note right of Notif : asynchronous;\nfailure is non-critical
 
-C --> U : confirmation
-deactivate C
+RS -> AudS : record audit entry
+activate AudS
+
+alt audit write succeeds
+    AudS -> Clock : current time
+    activate Clock
+    Clock --> AudS : timestamp
+    deactivate Clock
+    AudS -> Log : append entry
+    activate Log
+    Log --> AudS : appended
+    deactivate Log
+    AudS --> RS : recorded
+    RS --> Approver : decision confirmed
+else audit write fails
+    AudS --> RS : recording failed
+    RS -> PS : revoke permission
+    activate PS
+    PS --> RS : revoked
+    deactivate PS
+    RS -> Req : revert to submitted
+    activate Req
+    Req --> RS : reverted
+    deactivate Req
+    RS --> Approver : decision rolled back
+end
+
+deactivate AudS
+deactivate RS
 
 @enduml
