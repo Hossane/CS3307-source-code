@@ -1,0 +1,175 @@
+@startuml
+skinparam classAttributeIconSize 0
+
+abstract class ApprovalPolicy {
+  + {abstract} requiredApprovals(c : Category) : int
+  + {abstract} canApprove(u : User, r : AccessRequest) : bool
+}
+
+class AutoApprovalPolicy {
+  + AutoApprovalPolicy()
+}
+class SingleApproverPolicy {
+  + SingleApproverPolicy()
+}
+class DualApproverPolicy {
+  + DualApproverPolicy()
+}
+class AdministratorOnlyPolicy {
+  + AdministratorOnlyPolicy()
+}
+
+ApprovalPolicy <|-- AutoApprovalPolicy
+ApprovalPolicy <|-- SingleApproverPolicy
+ApprovalPolicy <|-- DualApproverPolicy
+ApprovalPolicy <|-- AdministratorOnlyPolicy
+
+interface IAuditStore {
+  + append(e : AuditEntry) : void
+  + search(f : AuditFilter) : AuditEntry[*]
+}
+interface INotifier {
+  + notify(u : User, msg : String) : void
+}
+interface IClock {
+  + now() : Timestamp
+}
+
+class FileAuditStore {
+  + FileAuditStore(path : String)
+}
+class InMemoryAuditStore {
+  + InMemoryAuditStore()
+}
+class SimulatedNotifier {
+  + SimulatedNotifier()
+}
+class SystemClock {
+  + SystemClock()
+}
+class FakeClock {
+  + FakeClock(start : Timestamp)
+}
+
+IAuditStore <|.. FileAuditStore
+IAuditStore <|.. InMemoryAuditStore
+INotifier  <|.. SimulatedNotifier
+IClock     <|.. SystemClock
+IClock     <|.. FakeClock
+
+class User {
+  - id : String
+  - name : String
+  - role : Role
+  - active : Boolean
+  + User(id : String, name : String, role : Role)
+  + isActive() : Boolean
+  + deactivate() : void
+}
+
+enum Role {
+  Viewer
+  Contributor
+  Approver
+  Administrator
+}
+
+enum Category {
+  Public
+  Internal
+  Confidential
+  Restricted
+}
+
+enum DocumentState {
+  Draft
+  Published
+  UnderReview
+  Archived
+  Destroyed
+}
+
+enum RequestState {
+  Draft
+  Submitted
+  UnderReview
+  Approved
+  Denied
+  Expired
+  Revoked
+}
+
+class Document {
+  - id : String
+  - title : String
+  - owner : String
+  - category : Category
+  - state : DocumentState
+  + Document(id : String, title : String, owner : String, category : Category)
+  + transitionTo(s : DocumentState) : void
+  + isPublished() : Boolean
+}
+
+class AccessRequest {
+  - id : String
+  - purpose : String
+  - durationHours : int
+  - state : RequestState
+  - approvals : int
+  - policy : ApprovalPolicy
+  + AccessRequest(id : String, doc : Document, requester : User, purpose : String, durationHours : int, policy : ApprovalPolicy)
+  + submit() : void
+  + approve(u : User) : void
+  + deny(u : User, reason : String) : void
+  + returnForInfo() : void
+  + isDecidable() : Boolean
+}
+
+class ApprovalRecord {
+  - approverId : String
+  - decidedAt : Timestamp
+  - decision : String
+  + ApprovalRecord(approverId : String, decidedAt : Timestamp, decision : String)
+}
+
+class Permission {
+  - id : String
+  - expiresAt : Timestamp
+  - active : Boolean
+  + Permission(id : String, doc : Document, holder : User, expiresAt : Timestamp)
+  + isActive(now : Timestamp) : Boolean
+  + revoke() : void
+}
+
+class AuditEntry {
+  - timestamp : Timestamp
+  - actorId : String
+  - action : String
+  - documentId : String
+  - details : String
+  + AuditEntry(timestamp : Timestamp, actorId : String, action : String, documentId : String, details : String)
+  + wipe() : void
+}
+
+class AlertPolicy {
+  - name : String
+  - threshold : int
+  - windowHours : int
+  + AlertPolicy(name : String, threshold : int, windowHours : int)
+  + isTriggered(events : AuditEntry[*]) : Boolean
+}
+
+User "1" -- "1" Role
+Document "1" -- "1" Category
+Document "1" -- "1" DocumentState
+AccessRequest "*" -- "1" Document
+AccessRequest "*" -- "1" User
+AccessRequest "1" -- "1" RequestState
+Permission "*" -- "1" Document
+Permission "*" -- "1" User
+AccessRequest "1" *-- "0..*" ApprovalRecord : owns
+Document "1" o-- "0..*" AuditEntry : collects
+AccessRequest ..> ApprovalPolicy : uses
+AuditEntry ..> IAuditStore : stored via
+
+@enduml

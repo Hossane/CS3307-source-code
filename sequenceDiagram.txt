@@ -1,0 +1,51 @@
+@startuml
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor "approver : User" as U
+participant "ctrl : ApprovalController" as C
+participant "req : AccessRequest" as R
+participant "pol : ApprovalPolicy" as P
+participant "perm : Permission" as M
+participant "store : IAuditStore" as S
+participant "notif : INotifier" as N
+
+U -> C : selectRequest(reqId)
+activate C
+
+C -> R : approve(approver)
+activate R
+
+R -> P : canApprove(approver, self)
+activate P
+P --> R : true
+deactivate P
+
+R -> P : requiredApprovals(category)
+activate P
+P --> R : 1
+deactivate P
+
+R -> R : transitionTo(Approved)
+R -> M : <<create>> Permission(id, doc, requester, expiresAt)
+activate M
+M --> R : perm
+deactivate M
+
+R -> S : append(AuditEntry(...))
+activate S
+S --> R
+deactivate S
+
+R -> N : notify(requester, "access granted")
+activate N
+N --> R
+deactivate N
+
+R --> C : result
+deactivate R
+
+C --> U : confirmation
+deactivate C
+
+@enduml
